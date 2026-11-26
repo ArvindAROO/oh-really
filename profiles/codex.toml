@@ -1,0 +1,21 @@
+# OpenAI Codex CLI
+
+[tool]
+name = "codex"
+match = ["codex"]
+
+[files]
+read_write = ["~/.codex"]
+read_only = ["~/.gitconfig"]
+
+[network]
+allow = [
+  "api.openai.com",
+  "auth.openai.com",
+  "chatgpt.com",
+  "registry.npmjs.org",
+  "github.com",
+]
+
+[env]
+pass = ["OPENAI_*", "CODEX_*"]

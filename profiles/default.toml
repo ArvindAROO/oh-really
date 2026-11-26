@@ -1,0 +1,5 @@
+# Used for any tool without its own profile.
+# Strictest settings: the current folder only, no extra files, no network.
+
+[tool]
+name = "default"

@@ -1,0 +1,21 @@
+# Claude Code
+
+[tool]
+name = "claude"
+match = ["claude"]
+
+[files]
+read_write = ["~/.claude", "~/.claude.json"]
+read_only = ["~/.gitconfig"]
+
+[network]
+allow = [
+  "api.anthropic.com",
+  "claude.ai",
+  "console.anthropic.com",
+  "registry.npmjs.org",
+  "github.com",
+]
+
+[env]
+pass = ["ANTHROPIC_*", "CLAUDE_*"]

@@ -1,0 +1,22 @@
+# Google Gemini CLI
+
+[tool]
+name = "gemini"
+match = ["gemini"]
+
+[files]
+read_write = ["~/.gemini"]
+read_only = ["~/.gitconfig"]
+
+[network]
+allow = [
+  "generativelanguage.googleapis.com",
+  "cloudcode-pa.googleapis.com",
+  "oauth2.googleapis.com",
+  "accounts.google.com",
+  "registry.npmjs.org",
+  "github.com",
+]
+
+[env]
+pass = ["GEMINI_*", "GOOGLE_*"]
