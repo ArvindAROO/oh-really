@@ -145,6 +145,15 @@ describe("buildBwrapArgs", () => {
     expect(off).not.toContain("/mnt/wsl/resolv.conf");
   });
 
+  it("refuses relative paths, which bwrap would mount relative to the sandbox root", () => {
+    expect(() =>
+      buildBwrapArgs(policy, { ...extra, systemReadOnly: ["/usr", "./bin"] }, "x", []),
+    ).toThrow(/absolute/);
+    expect(() =>
+      buildBwrapArgs({ ...policy, readOnly: ["relative/file"] }, extra, "x", []),
+    ).toThrow(/absolute/);
+  });
+
   it("requires a proxy socket in allowlist mode", () => {
     expect(() => buildBwrapArgs(policy, { ...extra, proxySocket: undefined }, "x", [])).toThrow(
       /proxy/,

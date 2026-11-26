@@ -1,18 +1,26 @@
 import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 
-/** Locate a command on PATH (honouring PATHEXT on Windows), like `which`. */
+/**
+ * Locate a command on PATH (honouring PATHEXT on Windows), like `which`.
+ * Always returns an absolute path: the sandbox backends mount the tool's
+ * folder by path, and a relative one would land in the wrong place.
+ */
 export function findExecutable(
   command: string,
   env: Record<string, string | undefined>,
   platform: NodeJS.Platform = process.platform,
+  cwd: string = process.cwd(),
 ): string | undefined {
-  if (/[\\/]/.test(command)) return isRunnable(command, platform) ? command : undefined;
+  if (/[\\/]/.test(command)) {
+    const file = path.resolve(cwd, command);
+    return isRunnable(file, platform) ? file : undefined;
+  }
   const pathVar = env.PATH ?? env.Path ?? "";
   const exts = platform === "win32" ? windowsExtensions(command, env.PATHEXT) : [""];
   for (const dir of pathVar.split(path.delimiter).filter(Boolean)) {
     for (const ext of exts) {
-      const candidate = path.join(dir, command + ext);
+      const candidate = path.resolve(cwd, dir, command + ext);
       if (isRunnable(candidate, platform)) return candidate;
     }
   }

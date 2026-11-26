@@ -49,6 +49,23 @@ export function buildBwrapArgs(
   if (policy.network.mode === "allowlist" && !extra.proxySocket) {
     throw new Error("allowlist mode needs a proxy socket");
   }
+  // bwrap resolves a relative mount source from its own working folder but the
+  // target from the sandbox root, so "./bin" would be mounted over /bin.
+  const paths = [
+    extra.home,
+    extra.tmpDir,
+    extra.emptyFile,
+    ...(extra.stagedHome ? [extra.stagedHome] : []),
+    ...(extra.proxySocket ? [extra.proxySocket] : []),
+    ...(extra.resolvConf ? [extra.resolvConf] : []),
+    ...extra.systemReadOnly,
+    policy.cwd,
+    ...policy.readOnly,
+    ...policy.readWrite,
+    ...policy.hidden,
+  ];
+  const relative = paths.find((p) => !p.startsWith("/"));
+  if (relative !== undefined) throw new Error(`sandbox paths must be absolute, got "${relative}"`);
   const out = ["--die-with-parent", "--unshare-all"];
   if (policy.network.mode === "open") out.push("--share-net");
   out.push("--proc", "/proc", "--dev", "/dev");

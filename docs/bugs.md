@@ -21,6 +21,21 @@ Then `stageIn` sees `/var/home/me/.claude.json` as outside `/home/me` and skips 
 
 ## Fixed
 
+### 11. Running a tool by a relative path (`oh-really ./tool`) breaks the Linux sandbox
+
+**Found:** 2026-11-26, CI `ubuntu-latest` smoke test. The two config-save checks failed: they start a fake `claude` as `./bin/claude`. The same test run by hand with an absolute path had passed (`proven.md` 6.6, 6.7).
+**Fixed in code:** 2026-11-26, tests in `test/run/executable.test.ts` and `test/sandbox/bwrap.test.ts`. **Awaiting a green Linux CI run.**
+**Severity:** high. Any tool started by a relative path (`./script`, `bin/tool`, a relative PATH entry like `node_modules/.bin`) could get a broken system folder.
+
+**Why:** `findExecutable` returned a relative command unchanged, so `execRoots` granted its folder as `./bin`. bubblewrap resolves a mount's *source* from its own working folder but its *target* from the sandbox root, so `--ro-bind-try ./bin ./bin` mounted the tool's folder **over the sandbox's `/bin`**. The fake tool's `#!/bin/sh` then had no shell.
+
+**Fix:**
+1. `findExecutable` always returns an absolute path, resolved against the launch folder, including relative PATH entries.
+2. `buildBwrapArgs` refuses any relative path (grants, system paths, temp and home folders), so this class of mistake fails loudly instead of mounting over system folders.
+
+macOS was not affected the same way: Seatbelt rules match paths and mount nothing.
+
+
 ### 4. A hidden file reads as "Permission denied" instead of empty
 
 **Found:** 2026-11-26 on L1, `proven.md` 4.6.

@@ -31,6 +31,13 @@ describe("findExecutable", () => {
     expect(findExecutable(tool, { PATH: "" })).toBe(tool);
   });
 
+  it("turns a relative path into an absolute one, against the given folder", () => {
+    // Regression (CI smoke test): `oh-really ./bin/claude` passed "./bin" on to
+    // bwrap, which mounted the tool's folder over the sandbox's /bin.
+    const relative = `.${isWin ? "\\" : "/"}${tool.slice(bin2.length + 1)}`;
+    expect(findExecutable(relative, { PATH: "" }, process.platform, bin2)).toBe(tool);
+  });
+
   it.runIf(isWin)("on Windows skips extensionless scripts that npm writes for Git Bash", () => {
     const npmDir = join(root, "npm");
     mkdirSync(npmDir);

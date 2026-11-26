@@ -91,7 +91,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     .option("-q, --quiet", "do not print the oh-really banner")
     .action((tool: string) => {
       showBanner();
-      const command = findExecutable(tool, process.env) ?? tool;
+      const command = findExecutable(tool, process.env, process.platform, io.cwd) ?? tool;
       const { toolName, policy, sources } = prepare(command, io.cwd, process.env);
       io.stdout.write(formatExplain(toolName, policy, sources));
     });

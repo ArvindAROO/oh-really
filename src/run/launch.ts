@@ -53,7 +53,7 @@ const RELAY_MAIN = fileURLToPath(new URL("../net/relay-main.js", import.meta.url
 /** Run a command under oh-really and resolve with its exit code. */
 export async function launch(options: LaunchOptions): Promise<number> {
   const env = options.env ?? process.env;
-  const executable = findExecutable(options.command, env);
+  const executable = findExecutable(options.command, env, process.platform, options.cwd);
   if (!executable) throw new CommandNotFoundError(options.command);
 
   if (options.yolo) {
