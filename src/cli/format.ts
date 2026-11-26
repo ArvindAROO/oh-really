@@ -5,7 +5,7 @@ import type { SandboxPolicy } from "../policy/resolve.js";
 export function formatReport(report: Report): string {
   const lines = [`Sandbox backend: ${report.backend ?? "none"}`, ""];
   for (const c of report.checks) {
-    lines.push(`  ${c.ok ? "ok  " : "FAIL"}  ${c.label}: ${c.detail}`);
+    lines.push(`  ${c.skipped ? "skip" : c.ok ? "ok  " : "FAIL"}  ${c.label}: ${c.detail}`);
     if (c.hint) lines.push(`        ${c.hint}`);
   }
   lines.push(

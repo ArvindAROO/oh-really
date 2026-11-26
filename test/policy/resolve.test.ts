@@ -6,7 +6,7 @@ import type { PathContext } from "../../src/policy/paths.js";
 import { withDefaults } from "../../src/policy/profile.js";
 import { resolvePolicy } from "../../src/policy/resolve.js";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "ohr-resolve-")));
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ohr-resolve-")));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 const ctx: PathContext = {
   cwd: join(root, "project"),

@@ -13,13 +13,14 @@
     "profiles"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "node --import tsx src/cli/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "bash scripts/smoke.sh",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",

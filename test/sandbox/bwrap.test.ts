@@ -21,6 +21,7 @@ const extra: BwrapExtras = {
   systemReadOnly: ["/usr", "/etc"],
   tmpDir: "/tmp/ohr-1",
   proxySocket: "/tmp/ohr-1/proxy.sock",
+  emptyFile: "/tmp/ohr-1/empty",
   kindOf: (p) => (p.endsWith("secrets") ? "dir" : "file"),
 };
 
@@ -91,8 +92,11 @@ describe("buildBwrapArgs", () => {
     ]);
   });
 
-  it("covers hidden files with /dev/null and hidden folders with an empty tmpfs, after the grants", () => {
-    expect(pairs(args, "--ro-bind")).toContainEqual(["/dev/null", "/home/me/project/.env"]);
+  it("covers hidden files with an empty file and hidden folders with an empty tmpfs, after the grants", () => {
+    // Bug 4: /dev/null cannot be opened from a user-namespace mount (EACCES),
+    // so a hidden file must be covered by an empty regular file to read as empty.
+    expect(pairs(args, "--ro-bind")).toContainEqual(["/tmp/ohr-1/empty", "/home/me/project/.env"]);
+    expect(args).not.toContain("/dev/null");
     const tmpfs = args.lastIndexOf("--tmpfs");
     expect(args[tmpfs + 1]).toBe("/home/me/project/secrets");
     expect(tmpfs).toBeGreaterThan(args.indexOf("/home/me/project"));

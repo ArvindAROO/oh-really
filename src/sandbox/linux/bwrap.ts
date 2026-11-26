@@ -16,6 +16,11 @@ export interface BwrapExtras {
   systemReadOnly: string[];
   /** Private temp folder for this run. */
   tmpDir: string;
+  /**
+   * An empty regular file used to cover hidden files. /dev/null cannot be
+   * used: device files on mounts inside a user namespace cannot be opened.
+   */
+  emptyFile: string;
   /** Unix socket of the local proxy, used in allowlist mode. */
   proxySocket: string | undefined;
   /**
@@ -65,7 +70,7 @@ export function buildBwrapArgs(
   for (const p of policy.hidden) {
     const kind = extra.kindOf(p);
     if (kind === "dir") out.push("--tmpfs", p);
-    else if (kind === "file") out.push("--ro-bind", "/dev/null", p);
+    else if (kind === "file") out.push("--ro-bind", extra.emptyFile, p);
   }
 
   if (extra.proxySocket) out.push("--bind", extra.proxySocket, extra.proxySocket);

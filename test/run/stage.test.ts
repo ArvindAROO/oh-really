@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { stageIn, stageOut } from "../../src/run/stage.js";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "ohr-stage-")));
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ohr-stage-")));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 let realHome: string;

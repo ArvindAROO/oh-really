@@ -4,7 +4,7 @@ import { delimiter, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { execRoots, findExecutable } from "../../src/run/executable.js";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "ohr-exe-")));
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ohr-exe-")));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 describe("findExecutable", () => {

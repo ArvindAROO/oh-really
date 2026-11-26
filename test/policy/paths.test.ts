@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -5,7 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { expandPath, type PathContext } from "../../src/policy/paths.js";
 import { ProfileError } from "../../src/policy/profile.js";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "ohr-paths-")));
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), "ohr-paths-")));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const ctx: PathContext = {
@@ -53,5 +54,26 @@ describe("expandPath", () => {
     mkdirSync(target);
     symlinkSync(target, join(ctx.cwd, "link2"), "junction");
     expect(expandPath("./link2/not/yet", ctx)).toBe(join(target, "not", "yet"));
+  });
+});
+
+/** Windows short (8.3) alias of an existing path, or undefined if the volume has none. */
+function shortName(path: string): string | undefined {
+  const out = spawnSync("cmd.exe", ["/d", "/c", `for %I in ("${path}") do @echo %~sI`], {
+    encoding: "utf8",
+    windowsVerbatimArguments: true,
+  }).stdout.trim();
+  return out && out.toLowerCase() !== path.toLowerCase() ? out : undefined;
+}
+
+describe.runIf(process.platform === "win32")("expandPath on Windows", () => {
+  const long = join(root, "a-folder-with-a-long-name");
+  mkdirSync(long, { recursive: true });
+  const short = shortName(long);
+
+  // Expanding aliases on purpose: a short-name spelling of a path must not
+  // slip past a comparison with its long form (bug 6).
+  it.runIf(short !== undefined)("expands short (8.3) names to the long form", () => {
+    expect(expandPath(short ?? "", ctx)).toBe(long);
   });
 });

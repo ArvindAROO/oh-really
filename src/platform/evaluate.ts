@@ -26,6 +26,8 @@ export interface Check {
   ok: boolean;
   detail: string;
   hint?: string;
+  /** Could not be judged because an earlier check failed. Counts as ok; the earlier failure already blocks. */
+  skipped?: boolean;
 }
 
 export interface Report {
@@ -112,8 +114,6 @@ export function evaluate(facts: Facts): Report {
 
 function linuxChecks(kernel: string, linux: NonNullable<Facts["linux"]>): Check[] {
   const bwrap = linux.bwrapVersion;
-  const usernsOk =
-    linux.bwrapProbe ?? ((linux.maxUserNamespaces ?? 0) > 0 && !linux.apparmorRestrictsUserns);
   return [
     check(
       "wsl1",
@@ -129,20 +129,57 @@ function linuxChecks(kernel: string, linux: NonNullable<Facts["linux"]>): Check[
       bwrap ?? "not installed",
       `install bubblewrap ${COMPAT.linux.minBwrap} or later (e.g. "sudo apt install bubblewrap")`,
     ),
-    check(
-      "userns",
-      "Unprivileged user namespaces",
-      usernsOk,
-      linux.bwrapProbe === false
-        ? "bwrap could not start"
-        : linux.apparmorRestrictsUserns
-          ? "restricted by AppArmor"
-          : `max ${linux.maxUserNamespaces ?? "unknown"}`,
-      linux.apparmorRestrictsUserns
-        ? "Ubuntu's AppArmor blocks user namespaces for unknown programs; your distro's bubblewrap package usually ships a profile that allows it"
-        : "user namespaces are disabled (user.max_user_namespaces = 0)",
-    ),
+    usernsCheck(linux),
   ];
+}
+
+/**
+ * The reliable signal is actually starting bwrap with a user namespace (the
+ * probe), so without bubblewrap the check is skipped rather than guessed.
+ * Each failure names its own cause.
+ */
+function usernsCheck(linux: NonNullable<Facts["linux"]>): Check {
+  const id = "userns";
+  const label = "Unprivileged user namespaces";
+  if (linux.bwrapVersion === undefined) {
+    return { id, label, ok: true, skipped: true, detail: "skipped (needs bubblewrap)" };
+  }
+  const max = linux.maxUserNamespaces;
+  if (linux.bwrapProbe === true) return { id, label, ok: true, detail: `max ${max ?? "unknown"}` };
+  if (linux.bwrapProbe === false) {
+    if (max === 0) return disabled(id, label);
+    return {
+      id,
+      label,
+      ok: false,
+      detail: "bwrap could not start",
+      hint: linux.apparmorRestrictsUserns
+        ? "bwrap is installed but could not create a namespace: Ubuntu's AppArmor restricts unprivileged namespaces; your distro's bubblewrap package usually ships a profile that allows it"
+        : "bwrap is installed but could not create a namespace; check AppArmor/SELinux or the kernel's namespace settings",
+    };
+  }
+  // No probe result: fall back to the kernel settings.
+  if (max === 0) return disabled(id, label);
+  if (linux.apparmorRestrictsUserns) {
+    return {
+      id,
+      label,
+      ok: false,
+      detail: "restricted by AppArmor",
+      hint: "Ubuntu's AppArmor blocks user namespaces for unknown programs; your distro's bubblewrap package usually ships a profile that allows it",
+    };
+  }
+  return { id, label, ok: true, detail: `max ${max ?? "unknown"}` };
+}
+
+function disabled(id: string, label: string): Check {
+  return {
+    id,
+    label,
+    ok: false,
+    detail: "disabled",
+    hint: "user namespaces are disabled (user.max_user_namespaces = 0)",
+  };
 }
 
 function check(id: string, label: string, ok: boolean, detail: string, hint: string): Check {

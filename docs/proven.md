@@ -10,6 +10,7 @@ Status: **proven** (seen working), **failed** (seen broken, tracked in `bugs.md`
 |---|---|---|
 | W1 | Windows 10 22H2 (build 19045) | x64, Node 22.14, project on NTFS `D:` |
 | L1 | Ubuntu on WSL2 | x64, kernel 6.18.58.1-microsoft-standard-WSL2, bubblewrap 0.9.0, nvm Node |
+| M1 | macOS, GitHub Actions `macos-latest` runner | arm64 (Apple Silicon), Darwin 25.6.0, Node 22 |
 
 Note on L1 results dated 2026-11-26 before the relink: those runs used the same source, but launched through the Windows npm shim that WSL finds via the appended Windows PATH. Linux Node ran the build in the Windows project folder. From the relink on, `oh-really` is linked from a Linux copy (`which -a oh-really` lists the `~/.nvm` one first).
 
@@ -24,6 +25,7 @@ Note on L1 results dated 2026-11-26 before the relink: those runs used the same 
 | 1.3 | Sandboxed launch is refused on Windows, with the report, nothing started | W1 | 2026-11-25 | proven |
 | 1.4 | `doctor` with bubblewrap missing fails only the bubblewrap check | L1 | 2026-11-26 | proven |
 | 1.5 | Sandboxed launch is refused when bubblewrap is missing | L1 | 2026-11-26 | proven |
+| 1.6 | `doctor` reports a supported macOS as ready | M1 | 2026-11-26 | proven |
 
 **1.1** `oh-really doctor`:
 ```
@@ -49,6 +51,18 @@ This also proves `bwrap --version` parsing, the user-namespace probe actually st
 Hiding bwrap by dropping `/usr/bin` from PATH is *not* a valid way to test this: Ubuntu's `/bin` links to `/usr/bin`, so bwrap is still found.
 
 **1.5** With bubblewrap removed, `oh-really node -e "console.log('should not run')"` printed "this system cannot enforce the oh-really sandbox" and the report above, exited 1, and the command never ran.
+
+**1.6** From the CI job `macos-latest / node 22`, step `node dist/cli/main.js doctor`:
+```
+Sandbox backend: macos-seatbelt
+
+  ok    CPU architecture: arm64
+  ok    macOS version: Darwin 25.6.0
+  ok    Seatbelt sandbox: /usr/bin/sandbox-exec
+
+This system is ready: every protection can be enforced.
+```
+This proves the macOS checks: arm64 accepted, Darwin version parsed against the macOS 12 minimum, and `sandbox-exec` found. It does **not** prove the Seatbelt sandbox itself. No macOS run has yet started a tool under the generated profile, so sections 4 to 6 (files, network, processes and saving settings) are proven on Linux only.
 
 **1.2** `oh-really doctor`:
 ```

@@ -60,7 +60,7 @@ Or try it without installing:
 npx oh-really <tool>
 ```
 
-Requires Node.js 20 or later. Works on **Windows 10/11**, **macOS 12+** and **most modern Linux** distributions.
+Requires Node.js 22.13 or later. Works on **Windows 10/11**, **macOS 12+** and **most modern Linux** distributions.
 
 ---
 

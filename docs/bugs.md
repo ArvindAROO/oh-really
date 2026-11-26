@@ -4,10 +4,43 @@ Open issues found during development. Fix each one test-first, then move it to "
 
 ## Open
 
+### 9. The home folder itself is never canonicalised (suspected, not reproduced)
+
+**Found:** 2026-11-26, by reasoning from bugs 6 and 7. Not yet seen on a real machine.
+**Where:** `prepare` in `src/run/prepare.ts` (home from `os.homedir()`), used by `stageIn` and as the bwrap home mount point.
+**Severity:** medium on the affected systems. Granted files under home would not be staged, so saving settings breaks again (bug 5), and grants could be mounted at a path the tool never uses.
+
+Grants are canonicalised (`expandPath`), but the home folder they are compared against is not. Where home sits behind a link, the two disagree:
+
+- Fedora Silverblue/Kinoite and other "atomic" distros: `/home` -> `/var/home`
+- Windows, when the profile path is in short form (as in bug 6); not reachable until the Windows backend exists, like bug 7
+
+Then `stageIn` sees `/var/home/me/.claude.json` as outside `/home/me` and skips it. bwrap empties `/home/me` while the grants land under `/var/home/me`, and the tool, following `$HOME`, looks in `/home/me`.
+
+**Fix plan:** test first (fake home behind a link, using a junction on Windows), then canonicalise home once in `prepare` and use that everywhere: staging, bwrap's home mount, and `$HOME` inside the sandbox. Verify on a Silverblue VM or toolbox before marking it fixed.
+
+## Fixed
+
+### 4. A hidden file reads as "Permission denied" instead of empty
+
+**Found:** 2026-11-26 on L1, `proven.md` 4.6.
+**Where:** the hidden-path handling in `buildBwrapArgs`, `src/sandbox/linux/bwrap.ts`.
+**Fixed:** 2026-11-26 (Linux), test in `test/sandbox/bwrap.test.ts`. Hidden files are covered by an empty, read-only regular file in the run's temp folder instead of `/dev/null`. Also covered by `scripts/smoke.sh`. **Awaiting re-test on L1** (repeat 4.6). macOS hides files with a Seatbelt deny rule, so there a hidden file still gives "Operation not permitted" rather than reading as empty. The content is protected on both.
+**Severity:** low. The content is protected either way. This is about predictable behaviour.
+
+With `hidden = ["./.env"]`, `cat .env` inside the sandbox gives `Permission denied` rather than an empty file.
+
+**Why:** hidden files are covered with `--ro-bind /dev/null <file>`. Inside a user namespace the kernel does not allow opening device nodes from such a mount, so the read is refused instead of returning nothing. (Hidden folders use an empty tmpfs and behave as intended.)
+
+**Why it matters:** some tools treat "permission denied" on a config file such as `.env` as a fatal error, but handle an empty file fine. Empty is also what the docs promise.
+
+**Fix plan:** test first in `test/sandbox/bwrap.test.ts`. A hidden file should be covered by an empty regular file inside the run's private temp folder (read-only), not by `/dev/null`. Then re-run 4.6 on L1.
+
 ### 1. `doctor` can give the wrong reason for a user-namespace failure
 
 **Found:** 2026-11-26, while checking what `oh-really doctor` prints on Linux without bubblewrap.
 **Where:** `linuxChecks` in `src/platform/evaluate.ts`.
+**Fixed:** 2026-11-26, tests in `test/platform/evaluate.test.ts` and `test/cli/format.test.ts`. Without bubblewrap the namespace check now shows `skip  ... skipped (needs bubblewrap)`, so one cause gives one failure. When it fails, the hint names the cause that decided it: probe failed (with or without AppArmor), AppArmor restriction, or `max_user_namespaces = 0`. **Awaiting re-test on L1** (repeat 1.4 with bubblewrap removed).
 **Severity:** low. The launch is still refused correctly in every case. Only the explanation is wrong, which can send the user after the wrong fix.
 
 The output below was produced by running `evaluate` + `formatReport` on each scenario.
@@ -60,24 +93,65 @@ Two failures are shown for what is often one fix: Ubuntu's bubblewrap package sh
 2. Add a `skipped` state to `Check` (printed as `skip` by `formatReport`; does not count against `supported`, since the bwrap failure already does).
 3. Choose the hint from the same condition that decided the result.
 
-### 4. A hidden file reads as "Permission denied" instead of empty
+### 10. `package.json` claims Node 20 works, but dependencies need 22.12
 
-**Found:** 2026-11-26 on L1, `proven.md` 4.6.
-**Where:** the hidden-path handling in `buildBwrapArgs`, `src/sandbox/linux/bwrap.ts`.
-**Severity:** low. The content is protected either way. This is about predictable behaviour.
+**Found:** 2026-11-26, CI `windows-latest / node 20`: vitest crashed while reporting the bug 6 failures.
+**Where:** `"engines": { "node": ">=20" }` in `package.json`.
+**Fixed:** 2026-11-26. `engines` is `>=22.13` and the README says 22.13. That is one minor above commander's 22.12, because eslint 10 (needed for `npm run check`) requires `^22.13`. A single floor lets CI test the minimum with the full check. The optional `doctor` Node-version check was not done; it stays as an idea.
+**Severity:** medium. Users on Node 20 to 22.11 are told oh-really is supported when its own runtime dependency is not.
 
-With `hidden = ["./.env"]`, `cat .env` inside the sandbox gives `Permission denied` rather than an empty file.
+```
+TypeError: Map.groupBy is not a function or its return value is not iterable
+ ❯ formatErrorAttempts node_modules/vitest/dist/chunks/cli-api....js
+```
 
-**Why:** hidden files are covered with `--ro-bind /dev/null <file>`. Inside a user namespace the kernel does not allow opening device nodes from such a mount, so the read is refused instead of returning nothing. (Hidden folders use an empty tmpfs and behave as intended.)
+What the installed dependencies declare:
 
-**Why it matters:** some tools treat "permission denied" on a config file such as `.env` as a fatal error, but handle an empty file fine. Empty is also what the docs promise.
+| Package | Kind | Needs Node |
+|---|---|---|
+| commander 15.1 | **runtime** | `>=22.12.0` |
+| vitest 5.1 | dev | `^22.12.0 || ^24.0.0 || >=26.0.0` |
+| eslint 10.15 | dev | `^20.19.0 || ^22.13.0 || >=24` |
+| smol-toml 1.9 | runtime | `>= 18` |
+| zod 4.6, koffi 3.3 | runtime | not declared |
 
-**Fix plan:** test first in `test/sandbox/bwrap.test.ts`. A hidden file should be covered by an empty regular file inside the run's private temp folder (read-only), not by `/dev/null`. Then re-run 4.6 on L1.
+**Why it hid in CI:** on Node 20 the tests still *run* (Linux and macOS Node 20 jobs were green). vitest's reporter only reaches `Map.groupBy` (Node 21+) when it has failures to print, so the crash appeared only on Windows, where bug 6 caused failures. As a side effect it hid the real failure details on that job.
+
+**Fix plan:**
+1. Set `"engines": { "node": ">=22.12" }`, and change the README's "Requires Node.js 20 or later" to 22.12.
+2. CI matrix `node: [22, 24]` (bug 8), pinning 22 to the oldest supported minor (`22.12`) in one job so the minimum is actually tested.
+3. Optional: `doctor` gains a Node version check against `engines`, matching the "check everything at startup" promise. Note that with commander 15 an old Node may fail before `doctor` runs, so the check must not depend on commander.
+
+### 8. CI uses deprecated action and Node versions
+
+**Found:** 2026-11-26, warnings in the first CI run.
+**Where:** `.github/workflows/ci.yml`.
+**Fixed:** 2026-11-26. `actions/checkout@v5` and `actions/setup-node@v5`; matrix is now Node `22.13` (the minimum) and `24`. **Awaiting a CI run without the warning.**
+**Severity:** none yet. These are warnings, not failures.
+
+- `actions/checkout@v4` and `actions/setup-node@v4` target Node 20, which GitHub is phasing out on its runners ("Node.js 20 is deprecated ... being forced to run on Node.js 24").
+- The test matrix still includes Node 20, which reached end of life in April 2026.
+
+**Fix plan:** move both actions to `@v5` and change the matrix to `node: [22, 24]`. Raising `engines` is bug 10: it is required, not optional, and the minimum is 22.12, not 22.
+
+### 7. The run's temp folder is resolved differently from every other path
+
+**Found:** 2026-11-26, while tracing bug 6.
+**Where:** `src/run/launch.ts`, `const tmpDir = realpathSync(mkdtempSync(...))`.
+**Fixed:** 2026-11-26, `realpathSync.native` in `src/run/launch.ts`. Not testable until a Windows backend exists, since this code is unreachable on Windows today.
+**Severity:** very low, latent. Not reachable today.
+
+Every other path in the policy goes through `realpathSync.native`, but the run's private temp folder uses plain `realpathSync`. On Windows they can disagree about short names (see bug 6).
+
+**Why it is not reachable now:** this line runs only after the platform check, so only on Linux and macOS, and neither has short names. Both versions resolve macOS's `/var` to `/private/var` link the same way. It would become a real mismatch once a Windows backend exists.
+
+**Fix plan:** switch to `realpathSync.native` for consistency.
 
 ### 6. Path tests fail on Windows when the temp folder has a short (8.3) name
 
 **Found:** 2026-11-26, first CI run on GitHub Actions (`windows-latest`, Node 20 and 22). Linux passed; macOS had not run yet.
 **Where:** the temp-folder setup at the top of `test/policy/paths.test.ts` and `test/policy/resolve.test.ts`. The same pattern is in `test/run/executable.test.ts` and `test/run/stage.test.ts`.
+**Fixed:** 2026-11-26. Test roots use `realpathSync.native`, and a new Windows test pins short-name expansion on purpose. Reproduced locally first by pointing `TEMP`/`TMP` at a short-name folder: the same 9 failures as CI. After the fix the full suite passes with both normal and short-name `TEMP`. **Awaiting a green Windows CI run.**
 **Severity:** low. Only the tests are wrong. The code under test behaves correctly.
 
 9 tests fail with the same folder written two ways:
@@ -91,32 +165,7 @@ Received: C:\Users\runneradmin\AppData\Local\Temp\ohr-paths-u9ErZc\project
 
 **Not only CI:** any Windows machine whose `TEMP` contains a short name fails the same way, for example some long or spaced user names.
 
-**Fix plan:** use `realpathSync.native` for the test temp roots in all four files, so expected and actual paths are canonicalized the same way. Check by setting `TEMP`/`TMP` to a short-name path locally (`cmd /c for %I in ("%TEMP%") do @echo %~sI` prints one) and running `npm test`.
-
-### 7. The run's temp folder is resolved differently from every other path
-
-**Found:** 2026-11-26, while tracing bug 6.
-**Where:** `src/run/launch.ts`, `const tmpDir = realpathSync(mkdtempSync(...))`.
-**Severity:** very low, latent. Not reachable today.
-
-Every other path in the policy goes through `realpathSync.native`, but the run's private temp folder uses plain `realpathSync`. On Windows they can disagree about short names (see bug 6).
-
-**Why it is not reachable now:** this line runs only after the platform check, so only on Linux and macOS, and neither has short names. Both versions resolve macOS's `/var` to `/private/var` link the same way. It would become a real mismatch once a Windows backend exists.
-
-**Fix plan:** switch to `realpathSync.native` for consistency.
-
-### 8. CI uses deprecated action and Node versions
-
-**Found:** 2026-11-26, warnings in the first CI run.
-**Where:** `.github/workflows/ci.yml`.
-**Severity:** none yet. These are warnings, not failures.
-
-- `actions/checkout@v4` and `actions/setup-node@v4` target Node 20, which GitHub is phasing out on its runners ("Node.js 20 is deprecated ... being forced to run on Node.js 24").
-- The test matrix still includes Node 20, which reached end of life in April 2026.
-
-**Fix plan:** move both actions to `@v5`. Change the matrix to `node: [22, 24]`, and raise `engines` in `package.json` from `>=20` to `>=22`.
-
-## Fixed
+**Fix plan:** use `realpathSync.native` for the test temp roots in all four files, so expected and actual paths are canonicalized the same way. Check by setting `TEMP`/`TMP` to a short-name path locally (`cmd /c for %I in ("%TEMP%") do @echo %~sI` prints one) and running `npm test`. Also add one Windows-only test that passes a short-name path to `expandPath` and expects the long form, so expanding short names is pinned down on purpose (it stops a short-name alias slipping past a grant check) rather than only by accident of the runner.
 
 ### 5. A granted file in the home folder cannot be saved by write-temp-then-rename
 

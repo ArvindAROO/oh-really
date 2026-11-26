@@ -24,6 +24,23 @@ describe("formatReport", () => {
     expect(text).toMatch(/cannot run sandboxed/);
   });
 
+  it("marks skipped checks as skip", () => {
+    const text = formatReport({
+      backend: "linux-bwrap",
+      supported: false,
+      checks: [
+        {
+          id: "userns",
+          label: "Unprivileged user namespaces",
+          ok: true,
+          skipped: true,
+          detail: "skipped (needs bubblewrap)",
+        },
+      ],
+    });
+    expect(text).toContain("  skip  Unprivileged user namespaces: skipped (needs bubblewrap)");
+  });
+
   it("says so when everything is fine", () => {
     const text = formatReport({ backend: "linux-bwrap", supported: true, checks: [] });
     expect(text).toMatch(/ready/);

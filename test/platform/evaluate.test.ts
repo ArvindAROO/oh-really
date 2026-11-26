@@ -77,6 +77,37 @@ describe("evaluate", () => {
     expect(failing({ ...linux, linux: { ...linuxFacts, bwrapProbe: false } })).toContain("userns");
   });
 
+  // Bug 1a: the hint must match the cause that failed the check.
+  it("blames bwrap, not the namespace limit, when the probe fails with namespaces enabled", () => {
+    const report = evaluate({ ...linux, linux: { ...linuxFacts, bwrapProbe: false } });
+    const userns = report.checks.find((c) => c.id === "userns");
+    expect(userns?.hint).toMatch(/could not create a namespace/);
+    expect(userns?.hint).not.toMatch(/max_user_namespaces/);
+  });
+
+  it("names the namespace limit only when it really is zero", () => {
+    const report = evaluate({ ...linux, linux: { ...linuxFacts, maxUserNamespaces: 0 } });
+    expect(report.checks.find((c) => c.id === "userns")?.hint).toMatch(/max_user_namespaces = 0/);
+  });
+
+  // Bug 1b: without bubblewrap the namespace check cannot be judged; one cause, one failure.
+  it("skips the namespace check when bubblewrap is missing, even under AppArmor", () => {
+    const report = evaluate({
+      ...linux,
+      linux: { ...linuxFacts, bwrapVersion: undefined, apparmorRestrictsUserns: true },
+    });
+    expect(
+      failing({
+        ...linux,
+        linux: { ...linuxFacts, bwrapVersion: undefined, apparmorRestrictsUserns: true },
+      }),
+    ).toEqual(["bwrap"]);
+    const userns = report.checks.find((c) => c.id === "userns");
+    expect(userns).toMatchObject({ ok: true, skipped: true });
+    expect(userns?.detail).toMatch(/needs bubblewrap/);
+    expect(report.supported).toBe(false);
+  });
+
   it("rejects WSL1", () => {
     expect(failing({ ...linux, linux: { ...linuxFacts, wsl1: true } })).toContain("wsl1");
   });

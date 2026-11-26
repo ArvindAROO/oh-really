@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Writable } from "node:stream";
@@ -66,7 +66,7 @@ export async function launch(options: LaunchOptions): Promise<number> {
 
   const { toolName, home, policy } = prepare(executable, options.cwd, env, options);
   mkdirSync(policy.toolHome, { recursive: true });
-  const tmpDir = realpathSync(mkdtempSync(join(tmpdir(), "oh-really-")));
+  const tmpDir = realpathSync.native(mkdtempSync(join(tmpdir(), "oh-really-")));
 
   let proxy: RunningProxy | undefined;
   let staged: Staged | undefined;
@@ -173,6 +173,7 @@ function planSandbox(input: PlanInput): { file: string; args: string[] } {
         tmpDir: input.tmpDir,
         proxySocket,
         resolvConf: realResolvConf(),
+        emptyFile: emptyFileIn(input.tmpDir),
         kindOf: pathKind,
       },
       inner[0] ?? executable,
@@ -181,6 +182,13 @@ function planSandbox(input: PlanInput): { file: string; args: string[] } {
     return { file: "bwrap", args: bwrapArgs };
   }
   throw new Error(`no sandbox backend for ${process.platform}`);
+}
+
+/** Create the empty file that covers hidden files (see BwrapExtras.emptyFile). */
+function emptyFileIn(dir: string): string {
+  const path = join(dir, "empty");
+  writeFileSync(path, "", { mode: 0o444 });
+  return path;
 }
 
 /** Where /etc/resolv.conf really lives, if that is somewhere other than /etc. */
