@@ -57,12 +57,17 @@ describe("expandPath", () => {
   });
 });
 
-/** Windows short (8.3) alias of an existing path, or undefined if the volume has none. */
+/**
+ * Windows short (8.3) alias of an existing path, or undefined if there is none.
+ * Must be safe to call on any OS: vitest runs a skipped describe's body while
+ * collecting tests, so this runs on Linux and macOS too.
+ */
 function shortName(path: string): string | undefined {
+  if (process.platform !== "win32") return undefined;
   const out = spawnSync("cmd.exe", ["/d", "/c", `for %I in ("${path}") do @echo %~sI`], {
     encoding: "utf8",
     windowsVerbatimArguments: true,
-  }).stdout.trim();
+  }).stdout?.trim();
   return out && out.toLowerCase() !== path.toLowerCase() ? out : undefined;
 }
 
