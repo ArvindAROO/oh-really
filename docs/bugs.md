@@ -46,11 +46,11 @@ Two failures are shown for what is often one fix: Ubuntu's bubblewrap package sh
 - When bubblewrap is missing, show the namespace check as **skipped (needs bubblewrap)**, never as a second failure.
 - When the namespace check fails, the hint names the real cause:
 
-| Cause | Hint |
-|---|---|
-| `bwrapProbe === false` | bwrap is installed but could not create a namespace; check AppArmor/SELinux or the kernel's namespace settings |
-| `apparmorRestrictsUserns` (no probe) | Ubuntu AppArmor restriction (current text) |
-| `maxUserNamespaces === 0` | user namespaces are disabled (current text) |
+| Cause                                | Hint                                                                                                           |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `bwrapProbe === false`               | bwrap is installed but could not create a namespace; check AppArmor/SELinux or the kernel's namespace settings |
+| `apparmorRestrictsUserns` (no probe) | Ubuntu AppArmor restriction (current text)                                                                     |
+| `maxUserNamespaces === 0`            | user namespaces are disabled (current text)                                                                    |
 
 #### Fix plan
 
@@ -74,12 +74,54 @@ With `hidden = ["./.env"]`, `cat .env` inside the sandbox gives `Permission deni
 
 **Fix plan:** test first in `test/sandbox/bwrap.test.ts`. A hidden file should be covered by an empty regular file inside the run's private temp folder (read-only), not by `/dev/null`. Then re-run 4.6 on L1.
 
+### 6. Path tests fail on Windows when the temp folder has a short (8.3) name
+
+**Found:** 2026-11-26, first CI run on GitHub Actions (`windows-latest`, Node 20 and 22). Linux passed; macOS had not run yet.
+**Where:** the temp-folder setup at the top of `test/policy/paths.test.ts` and `test/policy/resolve.test.ts`. The same pattern is in `test/run/executable.test.ts` and `test/run/stage.test.ts`.
+**Severity:** low. Only the tests are wrong. The code under test behaves correctly.
+
+9 tests fail with the same folder written two ways:
+
+```
+Expected: C:\Users\RUNNER~1\AppData\Local\Temp\ohr-paths-u9ErZc\project
+Received: C:\Users\runneradmin\AppData\Local\Temp\ohr-paths-u9ErZc\project
+```
+
+**Why:** on GitHub's Windows runners, `os.tmpdir()` returns a path with the old short name `RUNNER~1` for `runneradmin`. The tests build their expected paths with `realpathSync`, which keeps short names. `expandPath` (`src/policy/paths.ts`) uses `realpathSync.native`, which expands them to the full name. On a machine whose temp path has no short names, the two match and the tests pass. That is why they pass locally.
+
+**Not only CI:** any Windows machine whose `TEMP` contains a short name fails the same way, for example some long or spaced user names.
+
+**Fix plan:** use `realpathSync.native` for the test temp roots in all four files, so expected and actual paths are canonicalized the same way. Check by setting `TEMP`/`TMP` to a short-name path locally (`cmd /c for %I in ("%TEMP%") do @echo %~sI` prints one) and running `npm test`.
+
+### 7. The run's temp folder is resolved differently from every other path
+
+**Found:** 2026-11-26, while tracing bug 6.
+**Where:** `src/run/launch.ts`, `const tmpDir = realpathSync(mkdtempSync(...))`.
+**Severity:** very low, latent. Not reachable today.
+
+Every other path in the policy goes through `realpathSync.native`, but the run's private temp folder uses plain `realpathSync`. On Windows they can disagree about short names (see bug 6).
+
+**Why it is not reachable now:** this line runs only after the platform check, so only on Linux and macOS, and neither has short names. Both versions resolve macOS's `/var` to `/private/var` link the same way. It would become a real mismatch once a Windows backend exists.
+
+**Fix plan:** switch to `realpathSync.native` for consistency.
+
+### 8. CI uses deprecated action and Node versions
+
+**Found:** 2026-11-26, warnings in the first CI run.
+**Where:** `.github/workflows/ci.yml`.
+**Severity:** none yet. These are warnings, not failures.
+
+- `actions/checkout@v4` and `actions/setup-node@v4` target Node 20, which GitHub is phasing out on its runners ("Node.js 20 is deprecated ... being forced to run on Node.js 24").
+- The test matrix still includes Node 20, which reached end of life in April 2026.
+
+**Fix plan:** move both actions to `@v5`. Change the matrix to `node: [22, 24]`, and raise `engines` in `package.json` from `>=20` to `>=22`.
+
 ## Fixed
 
 ### 5. A granted file in the home folder cannot be saved by write-temp-then-rename
 
 **Found:** 2026-11-26 on L1, `proven.md` 6.6. This was suspected from the design and has now been confirmed.
-**Fixed in code:** 2026-11-26 (`src/run/stage.ts`, tests in `test/run/stage.test.ts`, `test/sandbox/bwrap.test.ts`, `test/sandbox/seatbelt.test.ts`). **Awaiting re-test on L1.**
+**Fixed in code:** 2026-11-26 (`src/run/stage.ts`, tests in `test/run/stage.test.ts`, `test/sandbox/bwrap.test.ts`, `test/sandbox/seatbelt.test.ts`). **Verified on L1** (`proven.md` 6.6, 6.7).
 **Where:** how single-file grants are mounted (`buildBwrapArgs`); the same class of problem applies to the Seatbelt profile.
 **Severity:** high for Claude Code. It almost certainly saves `~/.claude.json` this way, so logins and settings would not persist under oh-really.
 
@@ -88,7 +130,7 @@ $ oh-really <fake claude that writes ~/.claude.json.tmp, then mv's it over ~/.cl
 mv: cannot move '~/.claude.json.tmp' to '~/.claude.json': Device or resource busy
 ```
 
-**Why:** `~/.claude.json` is bind-mounted into an otherwise empty, in-memory home. The temp file is created in that in-memory home, and the kernel refuses to rename anything *onto* a mount point (EBUSY). Even if it allowed it, the result would land in the throwaway home, not on disk.
+**Why:** `~/.claude.json` is bind-mounted into an otherwise empty, in-memory home. The temp file is created in that in-memory home, and the kernel refuses to rename anything _onto_ a mount point (EBUSY). Even if it allowed it, the result would land in the throwaway home, not on disk.
 
 On macOS the same save would fail differently: the profile grants `~/.claude.json` but not the right to create `~/.claude.json.tmp` next to it.
 
@@ -101,11 +143,11 @@ On macOS the same save would fail differently: the profile grants `~/.claude.jso
 **Chosen:** 1 on Linux and 2 on macOS, both behind the same profile semantics ("this file is read-write").
 
 **What was built:**
-- **Linux:** the sandbox's home is no longer an empty in-memory folder. It is a private staging folder inside the run's temp folder, mounted as home. Granted *files* under home are copied into it before the run and written back after the run if they changed. The write-back itself is a temp-then-rename on the real disk. Grants that do not exist yet are watched, and whatever the tool creates there (file or folder) is copied back; this also fixes a tool's first run, which previously lost its new config. Existing folders are still mounted live. If the tool deletes its copy, the real file is left alone.
+
+- **Linux:** the sandbox's home is no longer an empty in-memory folder. It is a private staging folder inside the run's temp folder, mounted as home. Granted _files_ under home are copied into it before the run and written back after the run if they changed. The write-back itself is a temp-then-rename on the real disk. Grants that do not exist yet are watched, and whatever the tool creates there (file or folder) is copied back; this also fixes a tool's first run, which previously lost its new config. Existing folders are still mounted live. If the tool deletes its copy, the real file is left alone.
 - **macOS:** read-write grants that are files, or that do not exist yet, are allowed by prefix (`<path>` and `<path>.*`), so the temp file next to them can be created and renamed over them.
 
 **Known limitation (not critical, by decision):** if something outside the sandbox (the user, an editor, another agent) changes the same file while the tool runs, the tool's version is written back on exit and wins. Edits made outside during a run are not oh-really's concern; this is noted so it is not mistaken for a bug later.
-
 
 ### 3. `--net open` on Linux cannot resolve any host
 
@@ -131,7 +173,6 @@ systemd-resolved distros have the same layout, with the link going into `/run/sy
 
 **Fix:** at launch, resolve the real path of `/etc/resolv.conf`. In open mode, if it lies outside `/etc`, mount that one file read-only. Only the file is mounted, not the whole `/mnt/wsl` or `/run` folder. It is not mounted in off or allowlist mode, where the proxy resolves names outside the sandbox.
 
-
 ### 2. Linux sandbox could not find Node or tools installed in the home folder
 
 **Found:** 2026-11-26 on L1 (WSL2 Ubuntu, Node via nvm), see `proven.md`.
@@ -143,6 +184,6 @@ systemd-resolved distros have the same layout, with the link going into `/run/sy
 bwrap: execvp ~/.nvm/versions/node/<version>/bin/node: No such file or directory
 ```
 
-**Why:** `buildBwrapArgs` mounted the read-only system grants (which include the Node install and the tool's install folder) *before* mounting an empty tmpfs over the home folder. In bwrap a later mount covers earlier ones at the same place, so anything granted under `~` (nvm's Node, npm-global tools, oh-really's own relay) vanished.
+**Why:** `buildBwrapArgs` mounted the read-only system grants (which include the Node install and the tool's install folder) _before_ mounting an empty tmpfs over the home folder. In bwrap a later mount covers earlier ones at the same place, so anything granted under `~` (nvm's Node, npm-global tools, oh-really's own relay) vanished.
 
 **Fix:** mount the empty `/tmp` and home first, then the system grants.

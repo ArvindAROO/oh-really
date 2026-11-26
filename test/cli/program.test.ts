@@ -1,5 +1,6 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { TAGLINE } from "../../src/cli/banner.js";
 import { runCli } from "../../src/cli/program.js";
 
 async function cli(...argv: string[]) {
@@ -57,6 +58,50 @@ describe("oh-really CLI", () => {
     const result = await cli("doctor");
     expect(result.stdout).toMatch(/Sandbox backend:/);
     expect(result.code).toBe(result.stdout.includes("FAIL") ? 1 : 0);
+  });
+
+  describe("banner", () => {
+    /** Run with stderr pretending to be an interactive terminal and a clean environment. */
+    async function cliTty(...argv: string[]) {
+      const out = new PassThrough();
+      const err = Object.assign(new PassThrough(), { isTTY: true, columns: 120 });
+      let stdout = "";
+      let stderr = "";
+      out.on("data", (d) => (stdout += d));
+      err.on("data", (d) => (stderr += d));
+      const code = await runCli(argv, { stdout: out, stderr: err, cwd: process.cwd(), env: {} });
+      return { code, stdout, stderr };
+    }
+
+    it.each([[[]], [["--help"]], [["doctor"]], [["doctor", "--help"]], [["explain", "claude"]]])(
+      "is shown on stderr for oh-really's own commands: %j",
+      async (argv) => {
+        const result = await cliTty(...argv);
+        expect(result.stderr).toContain(TAGLINE);
+        expect(result.stdout).not.toContain(TAGLINE);
+      },
+    );
+
+    it("is shown once, even when help is printed", async () => {
+      const result = await cliTty("--help");
+      expect(result.stderr.split(TAGLINE)).toHaveLength(2);
+    });
+
+    it("is never shown when launching a tool", async () => {
+      const result = await cliTty("--yolo", process.execPath, "-e", "process.exit(0)");
+      expect(result.stderr).not.toContain(TAGLINE);
+    });
+
+    it.each([[["-q", "doctor"]], [["doctor", "-q"]], [["--quiet", "--help"]]])(
+      "is not shown with --quiet: %j",
+      async (argv) => {
+        expect((await cliTty(...argv)).stderr).not.toContain(TAGLINE);
+      },
+    );
+
+    it("is not shown when stderr is not a terminal", async () => {
+      expect((await cli("doctor")).stderr).not.toContain(TAGLINE);
+    });
   });
 
   it("rejects an invalid --net value", async () => {

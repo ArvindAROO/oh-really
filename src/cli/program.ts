@@ -8,12 +8,15 @@ import { ProfileError } from "../policy/profile.js";
 import { findExecutable } from "../run/executable.js";
 import { CommandNotFoundError, launch, NotSupportedError } from "../run/launch.js";
 import { prepare } from "../run/prepare.js";
+import { bannerEnabled, renderBanner, type Terminal } from "./banner.js";
 import { formatExplain, formatReport } from "./format.js";
 
 export interface CliIo {
   stdout: Writable;
   stderr: Writable;
   cwd: string;
+  /** Environment used to decide whether to show the banner. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
 }
 
 const { version } = JSON.parse(
@@ -25,6 +28,15 @@ const { version } = JSON.parse(
 /** Parse `argv` (without node and script) and run. Resolves with the process exit code. */
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   let exitCode = 0;
+  const quiet = argv.includes("-q") || argv.includes("--quiet");
+  let bannerShown = false;
+  /** Print the wordmark once, for oh-really's own commands only. */
+  const showBanner = () => {
+    const terminal = io.stderr as Terminal;
+    if (bannerShown || !bannerEnabled(terminal, io.env ?? process.env, quiet)) return;
+    bannerShown = true;
+    io.stderr.write(renderBanner(version, terminal.columns));
+  };
   const program = new Command("oh-really")
     .description("Run any CLI tool so it can only touch the folder you're working in.")
     .version(version)
@@ -33,6 +45,11 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     .passThroughOptions()
     .exitOverride()
     .configureOutput({ writeOut: (s) => io.stdout.write(s), writeErr: (s) => io.stderr.write(s) })
+    .addHelpText("beforeAll", () => {
+      showBanner();
+      return "";
+    })
+    .option("-q, --quiet", "do not print the oh-really banner")
     .option("--yolo", "all guards down: run the tool without any sandbox")
     .option("--rw <path>", "also allow reading and changing this folder (repeatable)", collect, [])
     .addOption(
@@ -71,7 +88,9 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     .command("explain")
     .description("show in plain words what a tool is allowed to do")
     .argument("<tool>")
+    .option("-q, --quiet", "do not print the oh-really banner")
     .action((tool: string) => {
+      showBanner();
       const command = findExecutable(tool, process.env) ?? tool;
       const { toolName, policy, sources } = prepare(command, io.cwd, process.env);
       io.stdout.write(formatExplain(toolName, policy, sources));
@@ -80,7 +99,9 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   program
     .command("doctor")
     .description("check that this system can enforce every protection")
+    .option("-q, --quiet", "do not print the oh-really banner")
     .action(() => {
+      showBanner();
       const report = evaluate(gatherFacts(io.cwd));
       io.stdout.write(formatReport(report));
       exitCode = report.supported ? 0 : 1;

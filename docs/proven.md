@@ -97,7 +97,7 @@ Run from a scratch folder `~/ohr-test` with the default (strict) profile:
 
 - **4.1** `oh-really bash -c 'echo hello > inside.txt && cat inside.txt && rm inside.txt && echo OK-inside'` printed `hello` and `OK-inside`.
 - **4.2** `oh-really bash -c 'cat ~/.bashrc'`: `No such file or directory`, exit 1. `ls -A ~` inside showed only `.local .nvm ohr-test`: the folders that hold granted paths (tool home, Node, the project). Nothing else from the real home is visible.
-- **4.3** Writing `/etc/oh-really-test`: `Read-only file system`. Writing `../outside.txt` succeeded *inside* the sandbox (the home there is an empty in-memory folder), and afterwards `ls ~/outside.txt` on the real machine found nothing.
+- **4.3** Writing `/etc/oh-really-test`: `Read-only file system`. Writing `../outside.txt` succeeded *inside* the sandbox, and afterwards `ls ~/outside.txt` on the real machine found nothing. (The sandbox's home was an empty in-memory folder at the time. Since the fix for bug 5 it is a private staging folder that is deleted after the run; re-checked with the same result.)
 - **4.4** `oh-really bash -c 'bash -c "cat ~/.bashrc"'`: `No such file or directory`.
 - Also: `oh-really node -e ...` runs Node from nvm inside the sandbox, with the working folder set to the project. This confirms the fix for bug 2.
 
@@ -136,12 +136,15 @@ Run from a scratch folder `~/ohr-test` with the default (strict) profile:
 | 6.3 | No temp folders are left behind after a run, including after Ctrl+C | L1 | 2026-11-26 | proven |
 | 6.4 | API keys and secrets in the environment are not passed in | L1 | 2026-11-26 | proven |
 | 6.5 | The tool cannot see the user's other processes | L1 | 2026-11-26 | proven |
-| 6.6 | Saving a file by write-temp-then-rename works for a granted file in the home folder | L1 | 2026-11-26 | failed (bug 5) |
+| 6.6 | Saving a file by write-temp-then-rename works for a granted file in the home folder | L1 | 2026-11-26 | proven (after fixing bug 5) |
+| 6.7 | A tool's first run can create its granted config file, and it is kept | L1 | 2026-11-26 | proven |
 
 - **6.1** `oh-really bash -c 'exit 42'`: exit 42.
 - **6.2, 6.3** `oh-really sleep 30`, Ctrl+C after a second: prompt back at once. Afterwards `ls -d /tmp/oh-really-*` found nothing.
 - **6.4** Started with fake `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `AWS_SECRET_ACCESS_KEY`: none appeared inside. `OH_REALLY=1`, `NPM_CONFIG_PREFIX` (tool home) and `TMPDIR` (private run folder) were set.
-- **6.6** A fake `claude` script wrote `~/.claude.json.tmp` and renamed it over `~/.claude.json`: `mv: ... Device or resource busy`. The real file was unchanged. See bug 5.
+- **6.6** First run: a fake `claude` script wrote `~/.claude.json.tmp` and renamed it over `~/.claude.json`: `mv: ... Device or resource busy`, and the real file was unchanged (bug 5). After the fix, the same save printed `SAVE-OK` and the new content was on the real disk afterwards.
+- **6.7** With no `~/.claude.json` at all, the fake `claude` created it inside the sandbox, and it was on the real disk after the run.
+- Re-checked after the fix, unchanged: `~/.bashrc` still invisible (4.2), `../outside.txt` still never reaches the disk (4.3), no temp folders left behind (6.3).
 - **6.5** `oh-really ps aux` listed only two processes: bwrap itself (PID 1) and `ps`.
 
 ## 7. Claude Code
